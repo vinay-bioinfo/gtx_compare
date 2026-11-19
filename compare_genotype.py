@@ -3,7 +3,7 @@
 Compare gtXplorer genotype raw-data (TSV) against EP genotype-json artifacts.
 
 For a given barcode, this script reads:
-  <barcode>-genotype-rawdata.tsv          (gtXplorer side)
+  <barcode>-genotype-rawdata.tsv.gz       (gtXplorer side)
   results/artifacts/genotype-json/<barcode>.json   (EP side)
 
 It matches records using the CPRA identifier (e.g. "hg19:chr1:100154643:C"),
@@ -28,8 +28,8 @@ matching the format requested:
 barcode marker_gtxplorer gt_gtxplorer marker_ep gt_ep remarks/source
 
 Usage:
-    python3 compare_genotype.py --barcode 27117164714547
-    python3 compare_genotype.py --all              # run for every *-genotype-rawdata.tsv found
+    python3 compare_genotype.py --barcode 12345678901234
+    python3 compare_genotype.py --all
 """
 from __future__ import annotations
 
@@ -39,17 +39,7 @@ import json
 import sys
 from pathlib import Path
 
-BASE_DIR = Path(__file__).resolve().parent
-JSON_DIR = BASE_DIR / "results" / "artifacts" / "genotype-json"
-OUTPUT_DIR = BASE_DIR / "results" / "comparison"
-
-
-def find_barcodes() -> list[str]:
-    """Return all barcodes for which a *-genotype-rawdata.tsv file exists."""
-    barcodes = []
-    for p in BASE_DIR.glob("*-genotype-rawdata.tsv"):
-        barcodes.append(p.name.split("-genotype-rawdata.tsv")[0])
-    return sorted(barcodes)
+from common import ARTIFACTS_DIR, OUTPUT_DIR, RAW_DATA_DIR, find_barcodes, open_raw_data, raw_data_path
 
 
 def load_json_lookup(json_path: Path) -> tuple[dict[str, str], set[str]]:
@@ -62,12 +52,11 @@ def load_json_lookup(json_path: Path) -> tuple[dict[str, str], set[str]]:
     return genotype, missing
 
 
-def compare_barcode(barcode: str) -> Path:
-    tsv_path = BASE_DIR / f"{barcode}-genotype-rawdata.tsv"
-    json_path = JSON_DIR / f"{barcode}.json"
+def compare_barcode(barcode: str, raw_data_dir: Path = RAW_DATA_DIR,
+                    artifacts_dir: Path = ARTIFACTS_DIR) -> Path:
+    tsv_path = raw_data_path(barcode, raw_data_dir)
+    json_path = artifacts_dir / "genotype-json" / f"{barcode}.json"
 
-    if not tsv_path.exists():
-        raise FileNotFoundError(f"Raw data TSV not found: {tsv_path}")
     if not json_path.exists():
         raise FileNotFoundError(f"genotype-json artifact not found: {json_path}")
 
@@ -78,7 +67,7 @@ def compare_barcode(barcode: str) -> Path:
 
     counts = {"genotype": 0, "missing": 0, "not_found": 0}
 
-    with tsv_path.open(encoding="utf-8-sig", newline="") as fin, \
+    with open_raw_data(tsv_path) as fin, \
             out_path.open("w", encoding="utf-8", newline="") as fout:
         reader = csv.DictReader(fin, delimiter="\t")
         writer = csv.writer(fout, delimiter="\t")
@@ -125,23 +114,25 @@ def main() -> int:
     parser = argparse.ArgumentParser(
         description="Compare gtXplorer genotype rawdata TSV vs EP genotype-json."
     )
-    parser.add_argument("--barcode", help="Single barcode to process, e.g. 27117164714547")
-    parser.add_argument("--all", action="store_true", help="Process every barcode found in this folder")
+    parser.add_argument("--barcode", help="Single barcode to process, e.g. 12345678901234")
+    parser.add_argument("--all", action="store_true", help="Process every barcode found in the raw data directory")
+    parser.add_argument("--raw-data-dir", type=Path, default=RAW_DATA_DIR)
+    parser.add_argument("--artifacts-dir", type=Path, default=ARTIFACTS_DIR)
     args = parser.parse_args()
 
     if not args.barcode and not args.all:
-        available = find_barcodes()
+        available = find_barcodes(args.raw_data_dir)
         parser.error(
             "Provide --barcode <BARCODE> or --all.\n"
             f"Available barcodes: {', '.join(available) if available else '(none found)'}"
         )
 
-    barcodes = find_barcodes() if args.all else [args.barcode]
+    barcodes = find_barcodes(args.raw_data_dir) if args.all else [args.barcode]
 
     exit_code = 0
     for barcode in barcodes:
         try:
-            compare_barcode(barcode)
+            compare_barcode(barcode, args.raw_data_dir, args.artifacts_dir)
         except FileNotFoundError as e:
             print(f"ERROR: {e}", file=sys.stderr)
             exit_code = 1

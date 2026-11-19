@@ -1,3 +1,7 @@
 __pycache__/
 *-genotype-rawdata.tsv
+*-genotype-rawdata.tsv.gz
 results/
+.env
+barcodes.txt
+*sample_summary.txt

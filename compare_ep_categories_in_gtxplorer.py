@@ -2,7 +2,7 @@
 """
 Reverse check: for every category found in EP's json artifacts (every folder
 under results/artifacts except genotype-json), verify whether that same
-category/globalkey also exists in gtXplorer's <barcode>-genotype-rawdata.tsv.
+category/globalkey also exists in gtXplorer's <barcode>-genotype-rawdata.tsv.gz.
 
 This is the mirror image of compare_category_level_score.py (which starts
 from the gtXplorer TSV and looks for matches in EP). Here we start from EP
@@ -14,7 +14,7 @@ Output: results/comparison/<barcode>-ep_vs_gtxplorer_category.tsv
 One row per (EP source file, category key) pair.
 
 Usage:
-    python3 compare_ep_categories_in_gtxplorer.py --barcode 27117164714547
+    python3 compare_ep_categories_in_gtxplorer.py --barcode 12345678901234
     python3 compare_ep_categories_in_gtxplorer.py --all
 """
 from __future__ import annotations
@@ -27,22 +27,19 @@ from pathlib import Path
 # Reuse the EP-index / TSV-index builders already defined for the
 # gtXplorer -> EP comparison so both scripts stay in sync.
 from compare_category_level_score import (
-    BASE_DIR,
     build_ep_index,
     build_tsv_categories,
-    find_barcodes,
 )
+from common import ARTIFACTS_DIR, OUTPUT_DIR, RAW_DATA_DIR, find_barcodes, raw_data_path
 
-OUTPUT_DIR = BASE_DIR / "results" / "comparison"
 
-
-def compare_barcode(barcode: str) -> Path:
-    tsv_path = BASE_DIR / f"{barcode}-genotype-rawdata.tsv"
-    if not tsv_path.exists():
-        raise FileNotFoundError(f"Raw data TSV not found: {tsv_path}")
+def compare_barcode(barcode: str, raw_data_dir: Path = RAW_DATA_DIR,
+                    artifacts_dir: Path = ARTIFACTS_DIR,
+                    artifact_types: set[str] | None = None) -> Path:
+    tsv_path = raw_data_path(barcode, raw_data_dir)
 
     tsv_categories = build_tsv_categories(tsv_path)
-    ep_index = build_ep_index(barcode)
+    ep_index = build_ep_index(barcode, artifacts_dir, artifact_types)
 
     OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
     out_path = OUTPUT_DIR / f"{barcode}-ep_vs_gtxplorer_category.tsv"
@@ -100,23 +97,25 @@ def main() -> int:
     parser = argparse.ArgumentParser(
         description="Check which EP json categories are also present in gtXplorer rawdata TSV."
     )
-    parser.add_argument("--barcode", help="Single barcode to process, e.g. 27117164714547")
-    parser.add_argument("--all", action="store_true", help="Process every barcode found in this folder")
+    parser.add_argument("--barcode", help="Single barcode to process, e.g. 12345678901234")
+    parser.add_argument("--all", action="store_true", help="Process every barcode found in the raw data directory")
+    parser.add_argument("--raw-data-dir", type=Path, default=RAW_DATA_DIR)
+    parser.add_argument("--artifacts-dir", type=Path, default=ARTIFACTS_DIR)
     args = parser.parse_args()
 
     if not args.barcode and not args.all:
-        available = find_barcodes()
+        available = find_barcodes(args.raw_data_dir)
         parser.error(
             "Provide --barcode <BARCODE> or --all.\n"
             f"Available barcodes: {', '.join(available) if available else '(none found)'}"
         )
 
-    barcodes = find_barcodes() if args.all else [args.barcode]
+    barcodes = find_barcodes(args.raw_data_dir) if args.all else [args.barcode]
 
     exit_code = 0
     for barcode in barcodes:
         try:
-            compare_barcode(barcode)
+            compare_barcode(barcode, args.raw_data_dir, args.artifacts_dir)
         except FileNotFoundError as e:
             print(f"ERROR: {e}", file=sys.stderr)
             exit_code = 1

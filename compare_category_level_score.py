@@ -4,7 +4,7 @@ Compare gtXplorer genotype raw-data (TSV) against EP's category-level JSON
 artifacts (every artifact type EXCEPT genotype-json).
 
 For each barcode:
-  gtXplorer side : <barcode>-genotype-rawdata.tsv
+  gtXplorer side : <barcode>-genotype-rawdata.tsv.gz
   EP side        : results/artifacts/<any-folder-except-genotype-json>/<barcode>.json
 
 Matching strategy
@@ -44,7 +44,7 @@ Output format (one row per unique category/globalkey found in the TSV):
 barcode category_gtxplorer level_gtxplorer score_gtxplorer category_ep level_ep score_ep ep_source_file
 
 Usage:
-    python3 compare_category_level_score.py --barcode 27117164714547
+    python3 compare_category_level_score.py --barcode 12345678901234
     python3 compare_category_level_score.py --all
 """
 from __future__ import annotations
@@ -55,27 +55,17 @@ import json
 import sys
 from pathlib import Path
 
-BASE_DIR = Path(__file__).resolve().parent
-ARTIFACTS_DIR = BASE_DIR / "results" / "artifacts"
-OUTPUT_DIR = BASE_DIR / "results" / "comparison"
+from common import ARTIFACTS_DIR, OUTPUT_DIR, RAW_DATA_DIR, find_barcodes, open_raw_data, raw_data_path
 
 EXCLUDED_ARTIFACT_DIRS = {"genotype-json"}
 
 
-def find_barcodes() -> list[str]:
-    """Return all barcodes for which a *-genotype-rawdata.tsv file exists."""
-    return sorted(
-        p.name.split("-genotype-rawdata.tsv")[0]
-        for p in BASE_DIR.glob("*-genotype-rawdata.tsv")
-    )
-
-
-def candidate_artifact_dirs() -> list[Path]:
+def candidate_artifact_dirs(artifacts_dir: Path = ARTIFACTS_DIR) -> list[Path]:
     """All artifact sub-folders except genotype-json."""
-    if not ARTIFACTS_DIR.is_dir():
+    if not artifacts_dir.is_dir():
         return []
     return sorted(
-        d for d in ARTIFACTS_DIR.iterdir()
+        d for d in artifacts_dir.iterdir()
         if d.is_dir() and d.name not in EXCLUDED_ARTIFACT_DIRS
     )
 
@@ -92,13 +82,16 @@ def node_marker_set(node: dict) -> set[str]:
     return markers
 
 
-def build_ep_index(barcode: str) -> dict[str, list[dict]]:
+def build_ep_index(barcode: str, artifacts_dir: Path = ARTIFACTS_DIR,
+                   artifact_types: set[str] | None = None) -> dict[str, list[dict]]:
     """
     Build: globalkey -> list of {source_file, level, score, markers(set)}
     across every non-genotype artifact json available for this barcode.
     """
     index: dict[str, list[dict]] = {}
-    for art_dir in candidate_artifact_dirs():
+    for art_dir in candidate_artifact_dirs(artifacts_dir):
+        if artifact_types is not None and art_dir.name not in artifact_types:
+            continue
         json_path = art_dir / f"{barcode}.json"
         if not json_path.exists():
             continue
@@ -132,7 +125,7 @@ def build_tsv_categories(tsv_path: Path) -> "dict[str, dict]":
       and the full set of cpr values seen for that globalkey.
     """
     categories: dict[str, dict] = {}
-    with tsv_path.open(encoding="utf-8-sig", newline="") as f:
+    with open_raw_data(tsv_path) as f:
         reader = csv.DictReader(f, delimiter="\t")
         for row in reader:
             globalkey = row.get("globalkey", "")
@@ -161,13 +154,13 @@ def pick_best_match(candidates: list[dict], tsv_cpras: set[str]) -> dict | None:
     return candidates[0]
 
 
-def compare_barcode(barcode: str) -> Path:
-    tsv_path = BASE_DIR / f"{barcode}-genotype-rawdata.tsv"
-    if not tsv_path.exists():
-        raise FileNotFoundError(f"Raw data TSV not found: {tsv_path}")
+def compare_barcode(barcode: str, raw_data_dir: Path = RAW_DATA_DIR,
+                    artifacts_dir: Path = ARTIFACTS_DIR,
+                    artifact_types: set[str] | None = None) -> Path:
+    tsv_path = raw_data_path(barcode, raw_data_dir)
 
     tsv_categories = build_tsv_categories(tsv_path)
-    ep_index = build_ep_index(barcode)
+    ep_index = build_ep_index(barcode, artifacts_dir, artifact_types)
 
     OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
     out_path = OUTPUT_DIR / f"{barcode}-gtxplorer_vs_ep_category.tsv"
@@ -216,23 +209,25 @@ def main() -> int:
     parser = argparse.ArgumentParser(
         description="Compare gtXplorer category/level/score vs EP non-genotype json artifacts."
     )
-    parser.add_argument("--barcode", help="Single barcode to process, e.g. 27117164714547")
-    parser.add_argument("--all", action="store_true", help="Process every barcode found in this folder")
+    parser.add_argument("--barcode", help="Single barcode to process, e.g. 12345678901234")
+    parser.add_argument("--all", action="store_true", help="Process every barcode found in the raw data directory")
+    parser.add_argument("--raw-data-dir", type=Path, default=RAW_DATA_DIR)
+    parser.add_argument("--artifacts-dir", type=Path, default=ARTIFACTS_DIR)
     args = parser.parse_args()
 
     if not args.barcode and not args.all:
-        available = find_barcodes()
+        available = find_barcodes(args.raw_data_dir)
         parser.error(
             "Provide --barcode <BARCODE> or --all.\n"
             f"Available barcodes: {', '.join(available) if available else '(none found)'}"
         )
 
-    barcodes = find_barcodes() if args.all else [args.barcode]
+    barcodes = find_barcodes(args.raw_data_dir) if args.all else [args.barcode]
 
     exit_code = 0
     for barcode in barcodes:
         try:
-            compare_barcode(barcode)
+            compare_barcode(barcode, args.raw_data_dir, args.artifacts_dir)
         except FileNotFoundError as e:
             print(f"ERROR: {e}", file=sys.stderr)
             exit_code = 1

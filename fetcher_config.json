@@ -1,0 +1,30 @@
+{
+  "use_production": true,
+  "artifact_types": [
+    "genotype-json",
+    "ancestry-json",
+    "metadata-json",
+    "cnv-auto-json",
+    "disease-cancer-only-json",
+    "disease-carrier-only-json",
+    "drugs-json",
+    "uk-population-health-disease-risk-neuropsychiatric-json",
+    "uk-vital-json",
+    "population-health-disease-risk-neuropsychiatric-json",
+    "vital-json",
+    "vital-lite-json"
+  ],
+  "user_agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/100.0.0.0 Safari/537.36",
+  "urls": {
+    "production": {
+      "domain": "enterprise.prenetics.com",
+      "back": "back.global.prod.api.circledna.com",
+      "front": "front.global.prod.api.circledna.com"
+    },
+    "testing": {
+      "domain": "testing-enterprise.prenetics.com",
+      "back": "back.global.test.api.circledna.com",
+      "front": "front.global.test.api.circledna.com"
+    }
+  }
+}
